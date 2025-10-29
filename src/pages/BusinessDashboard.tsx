@@ -5,13 +5,15 @@ import { Layout } from '../components/Layout';
 import { Card, CardBody, CardHeader } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { Plus, CreditCard as Edit2, Trash2, DollarSign, Clock, Users, Image as ImageIcon, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, CreditCard as Edit2, Trash2, DollarSign, Clock, Users, Image as ImageIcon } from 'lucide-react';
+import { MapPicker } from '../components/MapPicker';
 import type { Database } from '../lib/database.types';
 
 type BusinessProfile = Database['public']['Tables']['business_profiles']['Row'];
 type Service = Database['public']['Tables']['services']['Row'];
 type StaffMember = Database['public']['Tables']['staff_members']['Row'];
 type WorkingHour = Database['public']['Tables']['working_hours']['Row'];
+type BusinessWorkingHour = Database['public']['Tables']['business_working_hours']['Row'];
 
 export function BusinessDashboard() {
   const { user, profile, loading: authLoading, updateProfile } = useAuth();
@@ -24,8 +26,7 @@ export function BusinessDashboard() {
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [showStaffForm, setShowStaffForm] = useState(false);
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
-  const [managingHoursFor, setManagingHoursFor] = useState<StaffMember | null>(null);
-  const [hours, setHours] = useState<Record<number, { start: string; end: string } | null>>({
+  const [businessHours, setBusinessHours] = useState<Record<number, { start: string; end: string } | null>>({
     0: null, 1: null, 2: null, 3: null, 4: null, 5: null, 6: null,
   });
 
@@ -37,13 +38,22 @@ export function BusinessDashboard() {
     city: '',
     description: '',
     email: '',
+    phone_number: '',
+    mobile_money_number: '',
+    business_type: '',
+    latitude: '' as unknown as number | null,
+    longitude: '' as unknown as number | null,
   });
+
+  const [locationDisplay, setLocationDisplay] = useState('');
 
   const [serviceForm, setServiceForm] = useState({
     name: '',
     description: '',
     price: '',
     duration_minutes: '',
+    photoFile: null as File | null,
+    photoUrlInput: '',
   });
 
   const [staffForm, setStaffForm] = useState({
@@ -54,7 +64,12 @@ export function BusinessDashboard() {
     photoUrlInput: '',
   });
 
+  // Report date range
+  const [reportStartDate, setReportStartDate] = useState<string>('');
+  const [reportEndDate, setReportEndDate] = useState<string>('');
+
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const servicePhotoInputRef = useRef<HTMLInputElement>(null);
   const staffPhotoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -95,6 +110,36 @@ export function BusinessDashboard() {
           description: businessData.description || '',
           email: (businessData as any).email || '',
         });
+        setBusinessForm({
+          name: businessData.name,
+          address: businessData.address,
+          city: businessData.city,
+          description: businessData.description || '',
+          email: (businessData as any).email || '',
+          phone_number: (businessData as any).phone_number || '',
+          mobile_money_number: (businessData as any).mobile_money_number || '',
+          business_type: (businessData as any).business_type || '',
+          latitude: (businessData as any).latitude ?? null,
+          longitude: (businessData as any).longitude ?? null,
+        });
+
+        const hasCoords = (businessData as any).latitude != null && (businessData as any).longitude != null;
+        setLocationDisplay(
+          hasCoords
+            ? `Picked location (Lat ${Number((businessData as any).latitude).toFixed(5)}, Lng ${Number((businessData as any).longitude).toFixed(5)})`
+            : [businessData.address, businessData.city].filter(Boolean).join(', ')
+        );
+
+        // Load business working hours
+        const { data: hoursData } = await supabase
+          .from('business_working_hours')
+          .select('*')
+          .eq('business_id', businessData.id);
+        const map: Record<number, { start: string; end: string } | null> = { 0: null,1:null,2:null,3:null,4:null,5:null,6:null };
+        (hoursData || []).forEach((h: any) => {
+          map[h.day_of_week] = { start: h.start_time, end: h.end_time };
+        });
+        setBusinessHours(map);
 
         const { data: servicesData } = await supabase
           .from('services')
@@ -117,6 +162,24 @@ export function BusinessDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUseCurrentLocation = () => {
+    if (!('geolocation' in navigator)) {
+      alert('Geolocation is not supported by this browser');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setBusinessForm({ ...businessForm, latitude, longitude });
+        setLocationDisplay(`Picked location (Lat ${Number(latitude).toFixed(5)}, Lng ${Number(longitude).toFixed(5)})`);
+      },
+      (err) => {
+        alert(`Failed to get current location: ${err.message || 'Unknown error'}`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const handleSwitchToBusiness = async () => {
@@ -155,11 +218,35 @@ export function BusinessDashboard() {
 
     setFormErrors({});
 
+    const slugify = (name: string) =>
+      name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
     try {
+      const baseSlug = slugify(businessForm.name);
+      let slug = baseSlug || undefined;
+      if (slug) {
+        // Ensure uniqueness
+        const { data: existing } = await supabase
+          .from('business_profiles')
+          .select('id')
+          .eq('slug', slug)
+          .maybeSingle();
+        if (existing && (!business || existing.id !== business.id)) {
+          const suffix = Math.random().toString(36).slice(2, 6);
+          slug = `${slug}-${suffix}`;
+        }
+      }
+
       if (business) {
         const { error } = await supabase
           .from('business_profiles')
-          .update(businessForm)
+          .update({ ...businessForm, slug: slug ?? null })
           .eq('id', business.id);
 
         if (error) throw error;
@@ -169,6 +256,7 @@ export function BusinessDashboard() {
           .insert({
             owner_id: user.id,
             ...businessForm,
+            slug: slug ?? null,
           });
 
         if (error) throw error;
@@ -187,32 +275,73 @@ export function BusinessDashboard() {
     if (!business) return;
 
     try {
+      if (!serviceForm.name || !serviceForm.name.trim()) {
+        alert('Service name is required');
+        return;
+      }
+      const priceNum = parseFloat(serviceForm.price);
+      const durationNum = parseInt(serviceForm.duration_minutes);
+      if (Number.isNaN(priceNum) || priceNum <= 0) {
+        alert('Please enter a valid price');
+        return;
+      }
+      if (Number.isNaN(durationNum) || durationNum <= 0) {
+        alert('Please enter a valid duration (minutes)');
+        return;
+      }
+
       const serviceData = {
         business_id: business.id,
-        name: serviceForm.name,
+        name: serviceForm.name.trim(),
         description: serviceForm.description || null,
-        price: parseFloat(serviceForm.price),
-        duration_minutes: parseInt(serviceForm.duration_minutes),
+        price: priceNum,
+        duration_minutes: durationNum,
+        photo_url: editingService ? (serviceForm.photoUrlInput || editingService.photo_url || null) : (serviceForm.photoUrlInput || null),
       };
 
       if (editingService) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('services')
           .update(serviceData)
-          .eq('id', editingService.id);
+          .eq('id', editingService.id)
+          .select('*')
+          .maybeSingle();
 
         if (error) throw error;
+        // If file provided, upload and update photo_url
+        if (data && serviceForm.photoFile) {
+          const ext = serviceForm.photoFile.name.split('.').pop() || 'jpg';
+          const path = `services/${data.id}/photo.${ext}`;
+          const publicUrl = await uploadImage(serviceForm.photoFile, path);
+          const { error: updateError } = await supabase
+            .from('services')
+            .update({ photo_url: publicUrl })
+            .eq('id', data.id);
+          if (updateError) throw updateError;
+        }
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('services')
-          .insert(serviceData);
+          .insert(serviceData)
+          .select('*')
+          .maybeSingle();
 
         if (error) throw error;
+        if (data && serviceForm.photoFile) {
+          const ext = serviceForm.photoFile.name.split('.').pop() || 'jpg';
+          const path = `services/${data.id}/photo.${ext}`;
+          const publicUrl = await uploadImage(serviceForm.photoFile, path);
+          const { error: updateError } = await supabase
+            .from('services')
+            .update({ photo_url: publicUrl })
+            .eq('id', data.id);
+          if (updateError) throw updateError;
+        }
       }
 
       setShowServiceForm(false);
       setEditingService(null);
-      setServiceForm({ name: '', description: '', price: '', duration_minutes: '' });
+      setServiceForm({ name: '', description: '', price: '', duration_minutes: '', photoFile: null, photoUrlInput: '' });
       loadBusinessData();
     } catch (error) {
       console.error('Error saving service:', error);
@@ -291,40 +420,64 @@ export function BusinessDashboard() {
     }
   };
 
-  const openManageHours = async (staff: StaffMember) => {
-    setManagingHoursFor(staff);
-    const { data } = await supabase
-      .from('working_hours')
-      .select('*')
-      .eq('staff_member_id', staff.id);
-    const map: Record<number, { start: string; end: string } | null> = { 0: null,1:null,2:null,3:null,4:null,5:null,6:null };
-    (data || []).forEach((h: WorkingHour) => {
-      map[h.day_of_week] = { start: h.start_time, end: h.end_time };
-    });
-    setHours(map);
-  };
 
-  const handleSaveHours = async () => {
-    if (!managingHoursFor) return;
-    const payload: Partial<WorkingHour>[] = [];
+  const handleSaveBusinessHours = async () => {
+    if (!business) return;
+    const payload: Partial<BusinessWorkingHour>[] = [];
     for (let d = 0; d <= 6; d++) {
-      const slot = hours[d];
+      const slot = businessHours[d];
       if (slot && slot.start && slot.end) {
-        payload.push({ staff_member_id: managingHoursFor.id, day_of_week: d, start_time: slot.start, end_time: slot.end });
+        payload.push({ business_id: business.id, day_of_week: d, start_time: slot.start, end_time: slot.end } as any);
       }
     }
     try {
+      // Replace upsert with delete+insert to avoid unique constraint requirement
+      await supabase
+        .from('business_working_hours')
+        .delete()
+        .eq('business_id', business.id);
+  
       if (payload.length) {
         const { error } = await supabase
-          .from('working_hours')
-          .upsert(payload, { onConflict: 'staff_member_id,day_of_week' });
+          .from('business_working_hours')
+          .insert(payload);
         if (error) throw error;
       }
-      setManagingHoursFor(null);
       loadBusinessData();
     } catch (error) {
-      console.error('Error saving working hours:', error);
+      console.error('Error saving business working hours:', error);
       alert('Failed to save working hours');
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (!business) {
+      alert('No business profile found');
+      return;
+    }
+    try {
+      const base = (import.meta as any).env?.VITE_EMAIL_SERVER_URL || 'http://localhost:4000';
+      const params = new URLSearchParams();
+      if (reportStartDate) params.set('startDate', reportStartDate);
+      if (reportEndDate) params.set('endDate', reportEndDate);
+      const url = `${base}/businesses/${business.id}/report?${params.toString()}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to generate report');
+      }
+      const blob = await res.blob();
+      const filename = `bookease-report-${business.slug || business.id}-${reportStartDate || 'start'}-${reportEndDate || 'end'}.pdf`;
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      link.remove();
+    } catch (e: any) {
+      const message = e?.message || 'Failed to download report';
+      alert(message);
     }
   };
 
@@ -347,11 +500,26 @@ export function BusinessDashboard() {
 
   const handleEditService = (service: Service) => {
     setEditingService(service);
+    setShowServiceForm(true);
     setServiceForm({
-      name: service.name,
+      name: service.name || '',
       description: service.description || '',
-      price: service.price.toString(),
-      duration_minutes: service.duration_minutes.toString(),
+      price: String(service.price || ''),
+      duration_minutes: String(service.duration_minutes || ''),
+      photoFile: null,
+      photoUrlInput: service.photo_url || '',
+    });
+  };
+
+  const startCreateService = () => {
+    setEditingService(null);
+    setServiceForm({
+      name: '',
+      description: '',
+      price: '',
+      duration_minutes: '',
+      photoFile: null,
+      photoUrlInput: '',
     });
     setShowServiceForm(true);
   };
@@ -402,6 +570,29 @@ export function BusinessDashboard() {
           <p className="text-slate-600">Manage your business profile and services</p>
         </div>
 
+        {/* Reports */}
+        <Card className="mb-6">
+          <CardHeader>
+            <h2 className="text-xl font-bold text-slate-900">Reports</h2>
+          </CardHeader>
+          <CardBody>
+            <div className="grid md:grid-cols-3 gap-4 items-end">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                <Input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">End Date</label>
+                <Input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
+              </div>
+              <div>
+                <Button onClick={handleDownloadReport}>Download PDF Report</Button>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mt-2">Generates a PDF summary of appointments, revenue, and reviews for the selected period.</p>
+          </CardBody>
+        </Card>
+
         <Card className="mb-6">
           <CardHeader className="flex flex-row items-center justify-between">
             <h2 className="text-xl font-bold text-slate-900">Business Profile</h2>
@@ -446,7 +637,7 @@ export function BusinessDashboard() {
             </div>
           </CardHeader>
           <CardBody>
-            {!business && !showBusinessForm ? (
+            {(!business && !showBusinessForm) && (
               <div className="text-center py-8">
                 <p className="text-slate-600 mb-4">You haven't created a business profile yet</p>
                 <Button onClick={() => setShowBusinessForm(true)}>
@@ -454,7 +645,9 @@ export function BusinessDashboard() {
                   Create Business Profile
                 </Button>
               </div>
-            ) : showBusinessForm ? (
+            )}
+
+            {showBusinessForm && (
               <div className="space-y-4">
                 {business?.cover_photo_url && (
                   <img src={business.cover_photo_url} alt="Cover" className="w-full h-40 object-cover rounded-lg" />
@@ -465,6 +658,37 @@ export function BusinessDashboard() {
                   onChange={(e) => setBusinessForm({ ...businessForm, email: e.target.value })}
                   placeholder="you@business.com"
                 />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <Input
+                    label="Phone Number"
+                    value={businessForm.phone_number}
+                    onChange={(e) => setBusinessForm({ ...businessForm, phone_number: e.target.value })}
+                    placeholder="e.g., +233 555 123 456"
+                  />
+                  <Input
+                    label="Mobile Money Number"
+                    value={businessForm.mobile_money_number}
+                    onChange={(e) => setBusinessForm({ ...businessForm, mobile_money_number: e.target.value })}
+                    placeholder="e.g., 0244 123 456"
+                  />
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Business Type</label>
+                    <select
+                      value={businessForm.business_type || ''}
+                      onChange={(e) => setBusinessForm({ ...businessForm, business_type: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    >
+                      <option value="">Select type…</option>
+                      <option value="Barbershop">Barbershop</option>
+                      <option value="Salon">Salon</option>
+                      <option value="Hair Salon">Hair Salon</option>
+                      <option value="Nail Salon">Nail Salon</option>
+                      <option value="Spa">Spa</option>
+                      <option value="Beauty">Beauty</option>
+                      <option value="Massage">Massage</option>
+                    </select>
+                  </div>
+                </div>
                 <Input
                   label="Business Name"
                   error={formErrors.name}
@@ -486,6 +710,29 @@ export function BusinessDashboard() {
                   onChange={(e) => setBusinessForm({ ...businessForm, city: e.target.value })}
                   required
                 />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                  <Input
+                    label="Location"
+                    value={locationDisplay}
+                    onChange={(e) => setLocationDisplay(e.target.value)}
+                    placeholder="Address, City or pick current location"
+                  />
+                  <Button variant="outline" onClick={handleUseCurrentLocation}>Use Current Location</Button>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Pick on Map</label>
+                  <MapPicker
+                    latitude={businessForm.latitude ?? null}
+                    longitude={businessForm.longitude ?? null}
+                    onChange={(lat, lng) => {
+                      setBusinessForm({ ...businessForm, latitude: lat, longitude: lng });
+                      setLocationDisplay(`Picked location (Lat ${Number(lat).toFixed(5)}, Lng ${Number(lng).toFixed(5)})`);
+                    }}
+                    height={260}
+                  />
+                  <p className="text-xs text-slate-500 mt-2">Drag the pin or click on the map to set your location.</p>
+                </div>
+                <p className="text-xs text-slate-500">We’ll embed the map using your picked location or your address/city.</p>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Description
@@ -498,14 +745,49 @@ export function BusinessDashboard() {
                     placeholder="Tell clients about your business..."
                   />
                 </div>
+                
+                {/* Business Working Hours */}
+                <div>
+                  <h4 className="text-lg font-semibold text-slate-900 mb-3">Business Working Hours</h4>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {[0,1,2,3,4,5,6].map((d) => (
+                      <div key={d} className="flex items-center gap-3">
+                        <span className="w-24 text-slate-700">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]}</span>
+                        <input 
+                          type="time" 
+                          className="px-3 py-2 border border-slate-300 rounded-lg" 
+                          value={businessHours[d]?.start || ''} 
+                          onChange={(e) => setBusinessHours({ 
+                            ...businessHours, 
+                            [d]: e.target.value ? { start: e.target.value, end: businessHours[d]?.end || '' } : null 
+                          })} 
+                        />
+                        <span className="text-slate-500">-</span>
+                        <input 
+                          type="time" 
+                          className="px-3 py-2 border border-slate-300 rounded-lg" 
+                          value={businessHours[d]?.end || ''} 
+                          onChange={(e) => setBusinessHours({ 
+                            ...businessHours, 
+                            [d]: e.target.value ? { start: businessHours[d]?.start || '', end: e.target.value } : null 
+                          })} 
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
                 <div className="flex gap-3">
                   <Button onClick={handleSaveBusiness}>Save Business</Button>
+                  <Button onClick={handleSaveBusinessHours}>Save Working Hours</Button>
                   <Button variant="outline" onClick={() => setShowBusinessForm(false)}>
                     Cancel
                   </Button>
                 </div>
               </div>
-            ) : (
+            )}
+
+            {business && !showBusinessForm && (
               <div>
                 <h3 className="text-2xl font-bold text-slate-900 mb-2">{business?.name}</h3>
                 <p className="text-slate-600 mb-1">{business?.address}</p>
@@ -515,77 +797,91 @@ export function BusinessDashboard() {
                 )}
               </div>
             )}
-          </CardBody>
-        </Card>
+            </CardBody>
+          </Card>
 
-        {business && (
-          <>
-            <Card className="mb-6">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <h2 className="text-xl font-bold text-slate-900">Services</h2>
-                <Button size="sm" onClick={() => {
-                  setEditingService(null);
-                  setServiceForm({ name: '', description: '', price: '', duration_minutes: '' });
-                  setShowServiceForm(true);
-                }}>
-                  <Plus className="w-4 h-4 mr-1" />
-                  Add Service
-                </Button>
-              </CardHeader>
-              <CardBody>
-                {showServiceForm && (
-                  <div className="mb-6 p-4 bg-slate-50 rounded-lg space-y-4">
-                    <h3 className="font-semibold text-slate-900">
-                      {editingService ? 'Edit Service' : 'New Service'}
-                    </h3>
-                    <Input
-                      label="Service Name"
-                      value={serviceForm.name}
-                      onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })}
-                      required
-                    />
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                        Description
-                      </label>
-                      <textarea
-                        value={serviceForm.description}
-                        onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
-                        className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-none"
-                        rows={3}
-                        placeholder="Service description..."
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
+          {business && (
+            <>
+              <Card className="mb-6">
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <h2 className="text-xl font-bold text-slate-900">Services</h2>
+                  <Button size="sm" onClick={startCreateService}>
+                    <Plus className="w-4 h-4 mr-1" />
+                    Add Service
+                  </Button>
+                </CardHeader>
+                <CardBody>
+                  {showServiceForm ? (
+                    <div className="mb-6 p-4 bg-slate-50 rounded-lg space-y-4">
+                      <h3 className="font-semibold text-slate-900">
+                        {editingService ? 'Edit Service' : 'New Service'}
+                      </h3>
                       <Input
-                        label="Price (GHS)"
-                        type="number"
-                        step="0.01"
-                        value={serviceForm.price}
-                        onChange={(e) => setServiceForm({ ...serviceForm, price: e.target.value })}
+                        label="Service Name"
+                        value={serviceForm.name}
+                        onChange={(e) => setServiceForm({ ...serviceForm, name: e.target.value })}
                         required
                       />
-                      <Input
-                        label="Duration (minutes)"
-                        type="number"
-                        value={serviceForm.duration_minutes}
-                        onChange={(e) => setServiceForm({ ...serviceForm, duration_minutes: e.target.value })}
-                        required
-                      />
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                          Description
+                        </label>
+                        <textarea
+                          value={serviceForm.description}
+                          onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-500 resize-none"
+                          rows={3}
+                          placeholder="Service description..."
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Input
+                          label="Price (GHS)"
+                          type="number"
+                          step="0.01"
+                          value={serviceForm.price}
+                          onChange={(e) => setServiceForm({ ...serviceForm, price: e.target.value })}
+                          required
+                        />
+                        <Input
+                          label="Duration (minutes)"
+                          type="number"
+                          value={serviceForm.duration_minutes}
+                          onChange={(e) => setServiceForm({ ...serviceForm, duration_minutes: e.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          ref={servicePhotoInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => setServiceForm({ ...serviceForm, photoFile: e.target.files?.[0] || null })}
+                        />
+                        <Button variant="outline" size="sm" onClick={() => servicePhotoInputRef.current?.click()}>
+                          <ImageIcon className="w-4 h-4 mr-1" />
+                          Upload Service Image
+                        </Button>
+                        <Input
+                          placeholder="Or paste image URL"
+                          value={serviceForm.photoUrlInput}
+                          onChange={(e) => setServiceForm({ ...serviceForm, photoUrlInput: e.target.value })}
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <Button onClick={handleSaveService}>
+                          {editingService ? 'Update' : 'Create'} Service
+                        </Button>
+                        <Button variant="outline" onClick={() => {
+                          setShowServiceForm(false);
+                          setEditingService(null);
+                        }}>
+                          Cancel
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex gap-3">
-                      <Button onClick={handleSaveService}>
-                        {editingService ? 'Update' : 'Create'} Service
-                      </Button>
-                      <Button variant="outline" onClick={() => {
-                        setShowServiceForm(false);
-                        setEditingService(null);
-                      }}>
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                  ) : null}
 
                 {services.length === 0 ? (
                   <p className="text-slate-600">No services added yet</p>
@@ -596,36 +892,40 @@ export function BusinessDashboard() {
                         key={service.id}
                         className="flex items-center justify-between p-4 bg-slate-50 rounded-lg"
                       >
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-slate-900">{service.name}</h4>
-                          {service.description && (
-                            <p className="text-sm text-slate-600 mt-1">{service.description}</p>
+
+                        <div className="flex-1 flex items-center gap-4">
+                          {service.photo_url && (
+                            <img src={service.photo_url} alt="Service" className="w-16 h-16 rounded object-cover" />
                           )}
-                          <div className="flex gap-4 mt-2">
-                            <span className="text-sm text-slate-700">GHS {service.price}</span>
-                            <span className="flex items-center text-sm text-slate-700">
-                              <Clock className="w-4 h-4 mr-1 text-slate-400" />
-                              {service.duration_minutes} min
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEditService(service)}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteService(service.id)}
-                          >
-                            <Trash2 className="w-4 h-4 text-red-600" />
-                          </Button>
-                        </div>
-                      </div>
+                           <h4 className="font-semibold text-slate-900">{service.name}</h4>
+                           {service.description && (
+                             <p className="text-sm text-slate-600 mt-1">{service.description}</p>
+                           )}
+                           <div className="flex gap-4 mt-2">
+                             <span className="text-sm text-slate-700">GHS {service.price}</span>
+                             <span className="flex items-center text-sm text-slate-700">
+                               <Clock className="w-4 h-4 mr-1 text-slate-400" />
+                               {service.duration_minutes} min
+                             </span>
+                           </div>
+                         </div>
+                         <div className="flex gap-2">
+                           <Button
+                             variant="ghost"
+                             size="sm"
+                             onClick={() => handleEditService(service)}
+                           >
+                             <Edit2 className="w-4 h-4" />
+                           </Button>
+                           <Button
+                             variant="ghost"
+                             size="sm"
+                             onClick={() => handleDeleteService(service.id)}
+                           >
+                             <Trash2 className="w-4 h-4 text-red-600" />
+                           </Button>
+                         </div>
+                       </div>
                     ))}
                   </div>
                 )}
@@ -716,9 +1016,6 @@ export function BusinessDashboard() {
                           <Button variant="ghost" size="sm" onClick={() => { setEditingStaff(m); setShowStaffForm(true); setStaffForm({ name: (m as any).name || '', position: m.position || '', bio: m.bio || '', photoFile: null, photoUrlInput: m.photo_url || '' }); }}>
                             <Edit2 className="w-4 h-4" />
                           </Button>
-                          <Button variant="ghost" size="sm" onClick={() => openManageHours(m)}>
-                            <CalendarIcon className="w-4 h-4" />
-                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => handleDeleteStaff(m.id)}>
                             <Trash2 className="w-4 h-4 text-red-600" />
                           </Button>
@@ -728,25 +1025,7 @@ export function BusinessDashboard() {
                   </div>
                 )}
 
-                {managingHoursFor && (
-                  <div className="mt-6 p-4 bg-slate-50 rounded-lg">
-                    <h3 className="font-semibold text-slate-900 mb-3">Working Hours</h3>
-                    <div className="grid md:grid-cols-2 gap-4">
-                      {[0,1,2,3,4,5,6].map((d) => (
-                        <div key={d} className="flex items-center gap-3">
-                          <span className="w-24 text-slate-700">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d]}</span>
-                          <input type="time" className="px-3 py-2 border border-slate-300 rounded-lg" value={hours[d]?.start || ''} onChange={(e) => setHours({ ...hours, [d]: { start: e.target.value, end: hours[d]?.end || '' } })} />
-                          <span className="text-slate-500">-</span>
-                          <input type="time" className="px-3 py-2 border border-slate-300 rounded-lg" value={hours[d]?.end || ''} onChange={(e) => setHours({ ...hours, [d]: { start: hours[d]?.start || '', end: e.target.value } })} />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="flex gap-3 mt-4">
-                      <Button onClick={handleSaveHours}>Save Hours</Button>
-                      <Button variant="outline" onClick={() => setManagingHoursFor(null)}>Cancel</Button>
-                    </div>
-                  </div>
-                )}
+
               </CardBody>
             </Card>
 

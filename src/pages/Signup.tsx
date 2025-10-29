@@ -8,6 +8,8 @@ import type { UserType } from '../lib/database.types';
 
 export function Signup() {
   const { signUp } = useAuth();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -24,6 +26,11 @@ export function Signup() {
     e.preventDefault();
     setError('');
 
+    if (!firstName.trim() || !lastName.trim()) {
+      setError('Please enter your first and last name');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -36,7 +43,7 @@ export function Signup() {
 
     setLoading(true);
 
-    const { error } = await signUp(email, password, userType);
+    const { error } = await signUp(email, password, userType, firstName.trim(), lastName.trim());
 
     if (error) {
       setError(error.message);
@@ -104,6 +111,22 @@ export function Signup() {
                   </button>
                 </div>
               </div>
+
+              <Input
+                label="First Name"
+                placeholder="e.g., Ama"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+              />
+
+              <Input
+                label="Last Name"
+                placeholder="e.g., Mensah"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+              />
 
               <Input
                 type="email"

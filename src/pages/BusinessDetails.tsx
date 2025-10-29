@@ -4,16 +4,14 @@ import { supabase } from '../lib/supabase';
 import { Layout } from '../components/Layout';
 import { Card, CardBody, CardHeader } from '../components/Card';
 import { Button } from '../components/Button';
-import { MapPin, Star, Clock, DollarSign, User } from 'lucide-react';
+import { MapPin, Star, Clock, DollarSign, User, Phone } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
 type Service = Database['public']['Tables']['services']['Row'];
 type StaffMember = Database['public']['Tables']['staff_members']['Row'] & {
   profile: { profile_picture_url: string | null; phone_number: string | null };
 };
-type Review = Database['public']['Tables']['reviews']['Row'] & {
-  client: { profile_picture_url: string | null };
-};
+type Review = Database['public']['Tables']['reviews']['Row'];
 
 interface BusinessDetailsProps {
   businessId: string;
@@ -26,7 +24,6 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -36,21 +33,41 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
   useEffect(() => {
     document.title = business ? `Business — ${business.name}` : 'Business — BookEase';
   }, [business]);
+
+  // Public page: avoid joining restricted tables to keep reviews visible under RLS
+
   const loadBusinessData = async () => {
     try {
-      const { data: businessData, error: businessError } = await supabase
+      // Support slug or raw id in route param
+      let businessData: any = null;
+      let businessError: any = null;
+      const bySlug = await supabase
         .from('business_profiles')
         .select('*')
-        .eq('id', businessId)
+        .eq('slug', businessId)
         .maybeSingle();
+      if (bySlug.data) {
+        businessData = bySlug.data;
+        businessError = bySlug.error;
+      } else {
+        const byId = await supabase
+          .from('business_profiles')
+          .select('*')
+          .eq('id', businessId)
+          .maybeSingle();
+        businessData = byId.data;
+        businessError = byId.error;
+      }
 
       if (businessError) throw businessError;
       setBusiness(businessData);
 
+      const realBusinessId = businessData?.id || businessId;
+
       const { data: servicesData } = await supabase
         .from('services')
         .select('*')
-        .eq('business_id', businessId)
+        .eq('business_id', realBusinessId)
         .eq('is_active', true)
         .order('name');
 
@@ -62,22 +79,19 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
           *,
           profile:profiles(profile_picture_url, phone_number)
         `)
-        .eq('business_id', businessId)
+        .eq('business_id', realBusinessId)
         .eq('is_active', true);
 
       setStaff(staffData as any || []);
 
       const { data: reviewsData } = await supabase
         .from('reviews')
-        .select(`
-          *,
-          client:profiles(profile_picture_url)
-        `)
-        .eq('business_id', businessId)
+        .select('*')
+        .eq('business_id', realBusinessId)
         .order('created_at', { ascending: false })
         .limit(10);
 
-      setReviews(reviewsData as any || []);
+      setReviews((reviewsData as any) || []);
     } catch (error) {
       console.error('Error loading business:', error);
     } finally {
@@ -94,9 +108,30 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
       window.location.href = '/login';
       return;
     }
-    if (selectedService && selectedStaff) {
-      window.location.href = `/book?business=${businessId}&service=${selectedService.id}&staff=${selectedStaff.id}`;
+    if (selectedService) {
+      window.location.href = `/book?business=${businessId}&service=${selectedService.id}`;
     }
+  };
+
+  const getMapEmbedSrc = (): { src: string | null; link: string | null } => {
+    if (!business) return { src: null, link: null };
+    if (business.latitude && business.longitude) {
+      const q = `${business.latitude},${business.longitude}`;
+      return { src: `https://www.google.com/maps?q=${encodeURIComponent(q)}&z=15&output=embed`, link: null };
+    }
+    // Fallback: use address/city if available
+    const addrParts = [business.address, business.city].filter(Boolean).join(', ');
+    if (addrParts) {
+      return { src: `https://www.google.com/maps?q=${encodeURIComponent(addrParts)}&z=15&output=embed`, link: null };
+    }
+    // Try to find a maps link in description
+    const desc: string = business.description || '';
+    const linkMatch = desc.match(/https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|www\.google\.com\/maps)[^\s]+/i);
+    if (linkMatch) {
+      // Short or long links often cannot be embedded due to framing restrictions; expose as clickable
+      return { src: null, link: linkMatch[0] };
+    }
+    return { src: null, link: null };
   };
 
   if (loading) {
@@ -123,6 +158,8 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
     );
   }
 
+  const mapData = getMapEmbedSrc();
+
   return (
     <Layout>
       <div className="space-y-8">
@@ -142,11 +179,17 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
           <div className="absolute bottom-6 left-6 text-white">
             <h1 className="text-4xl font-bold mb-2">{business.name}</h1>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-1">
                 <MapPin className="w-5 h-5" />
                 <span>{business.address}, {business.city}</span>
               </div>
+              {business.phone_number && (
+                <div className="flex items-center gap-1">
+                  <Phone className="w-5 h-5" />
+                  <a href={`tel:${business.phone_number}`} className="underline">{business.phone_number}</a>
+                </div>
+              )}
               {reviews.length > 0 && (
                 <div className="flex items-center gap-1">
                   <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
@@ -165,6 +208,34 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
             </CardHeader>
             <CardBody>
               <p className="text-slate-700 leading-relaxed">{business.description}</p>
+            </CardBody>
+          </Card>
+        )}
+
+        {mapData && (
+          <Card>
+            <CardHeader>
+              <h2 className="text-xl font-bold text-slate-900">Location</h2>
+            </CardHeader>
+            <CardBody>
+              {mapData.src ? (
+                <div className="rounded-lg overflow-hidden border border-slate-200">
+                  <iframe
+                    title="Business Location"
+                    src={mapData.src}
+                    width="100%"
+                    height="300"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3 border border-slate-200">
+                  <p className="text-sm text-slate-700">Open the business location in Google Maps.</p>
+                  <a href={mapData.link!} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-blue-600 underline">Open Map</a>
+                </div>
+              )}
             </CardBody>
           </Card>
         )}
@@ -208,54 +279,8 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
               </CardBody>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <h2 className="text-xl font-bold text-slate-900">Our Team</h2>
-              </CardHeader>
-              <CardBody>
-                {staff.length === 0 ? (
-                  <p className="text-slate-600">No staff members available</p>
-                ) : (
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    {staff.map((member) => (
-                      <div
-                        key={member.id}
-                        onClick={() => setSelectedStaff(member)}
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          selectedStaff?.id === member.id
-                            ? 'border-slate-900 bg-slate-50'
-                            : 'border-slate-200 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 mb-2">
-                          {((member as any).photo_url || member.profile?.profile_picture_url) ? (
-                            <img
-                              src={(member as any).photo_url || member.profile?.profile_picture_url || ''}
-                              alt={(member as any).name || 'Staff Member'}
-                              className="w-12 h-12 rounded-full object-cover"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center">
-                              <User className="w-6 h-6 text-slate-600" />
-                            </div>
-                          )}
-                           <div>
-                             <h3 className="font-semibold text-slate-900">{(member as any).name || 'Staff Member'}</h3>
-                             {member.position && (
-                               <p className="text-sm text-slate-600">{member.position}</p>
-                             )}
-                           </div>
-                        </div>
-                        {member.bio && (
-                          <p className="text-sm text-slate-600">{member.bio}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardBody>
-            </Card>
-
+            {/* Removed Our Team section */}
+            
             <Card>
               <CardHeader>
                 <h2 className="text-xl font-bold text-slate-900">Reviews ({reviews.length})</h2>
@@ -265,28 +290,37 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
                   <p className="text-slate-600">No reviews yet</p>
                 ) : (
                   <div className="space-y-4">
-                    {reviews.map((review) => (
-                      <div key={review.id} className="border-b border-slate-100 pb-4 last:border-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          {[...Array(5)].map((_, i) => (
-                            <Star
-                              key={i}
-                              className={`w-4 h-4 ${
-                                i < review.rating
-                                  ? 'fill-yellow-400 text-yellow-400'
-                                  : 'text-slate-300'
-                              }`}
-                            />
-                          ))}
-                          <span className="text-sm text-slate-500 ml-2">
-                            {new Date(review.created_at).toLocaleDateString()}
-                          </span>
+                    {reviews.map((review) => {
+                      const displayName = 'Client';
+                      return (
+                        <div key={review.id} className="border-b border-slate-100 pb-4 last:border-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center">
+                              <User className="w-4 h-4 text-slate-500" />
+                            </div>
+                            <span className="text-sm font-medium text-slate-900">{displayName}</span>
+                            <span className="text-sm text-slate-500 ml-2">
+                              {new Date(review.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 mb-2">
+                            {[...Array(5)].map((_, i) => (
+                              <Star
+                                key={i}
+                                className={`w-4 h-4 ${
+                                  i < review.rating
+                                    ? 'fill-yellow-400 text-yellow-400'
+                                    : 'text-slate-300'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                          {review.comment && (
+                            <p className="text-slate-700">{review.comment}</p>
+                          )}
                         </div>
-                        {review.comment && (
-                          <p className="text-slate-700">{review.comment}</p>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </CardBody>
@@ -304,24 +338,18 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
                     <p className="text-sm text-slate-600">Select a service to continue</p>
                   ) : (
                     <div className="p-3 bg-slate-50 rounded-lg">
+                      {selectedService.photo_url && (
+                        <img src={selectedService.photo_url} alt="Service" className="w-full h-40 object-cover rounded mb-2" />
+                      )}
                       <p className="text-sm font-medium text-slate-700">Selected Service</p>
                       <p className="font-semibold text-slate-900">{selectedService.name}</p>
                       <p className="text-sm text-slate-600">GHS {selectedService.price} · {selectedService.duration_minutes} min</p>
                     </div>
                   )}
 
-                  {!selectedStaff ? (
-                    <p className="text-sm text-slate-600">Select a staff member to continue</p>
-                  ) : (
-                    <div className="p-3 bg-slate-50 rounded-lg">
-                      <p className="text-sm font-medium text-slate-700">Selected Staff</p>
-                      <p className="font-semibold text-slate-900">{(selectedStaff as any).name || 'Staff Member'}</p>
-                    </div>
-                  )}
-
                   <Button
                     fullWidth
-                    disabled={!selectedService || !selectedStaff}
+                    disabled={!selectedService}
                     onClick={handleBookAppointment}
                   >
                     Continue to Booking

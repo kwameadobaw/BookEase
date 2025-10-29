@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
-import { BusinessDetails } from './pages/BusinessDetails';
-import { BookAppointment } from './pages/BookAppointment';
 import { MyAppointments } from './pages/MyAppointments';
 import { BusinessDashboard } from './pages/BusinessDashboard';
 import { BusinessCalendar } from './pages/BusinessCalendar';
+import { BusinessDetails } from './pages/BusinessDetails';
+import { BookAppointment } from './pages/BookAppointment';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
+import Developer from './pages/Developer';
 
 export function Router() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -22,9 +25,10 @@ export function Router() {
 
     const originalPushState = window.history.pushState;
     window.history.pushState = function(...args) {
+      // @ts-ignore
       originalPushState.apply(window.history, args);
       handleLocationChange();
-    };
+    } as typeof window.history.pushState;
 
     return () => {
       window.removeEventListener('popstate', handleLocationChange);
@@ -45,6 +49,18 @@ export function Router() {
     return <Signup />;
   }
 
+  if (pathname === '/forgot') {
+    return <ForgotPassword />;
+  }
+
+  if (pathname === '/reset-password') {
+    return <ResetPassword />;
+  }
+
+  if (pathname === '/developer') {
+    return <Developer />;
+  }
+
   if (pathname === '/my-appointments') {
     return <MyAppointments />;
   }
@@ -57,6 +73,7 @@ export function Router() {
     return <BusinessCalendar />;
   }
 
+
   if (pathname.startsWith('/business/') && pathname !== '/business/dashboard' && pathname !== '/business/calendar') {
     const businessId = pathname.split('/')[2];
     return <BusinessDetails businessId={businessId} />;
@@ -65,10 +82,9 @@ export function Router() {
   if (pathname === '/book') {
     const businessId = getQueryParam('business');
     const serviceId = getQueryParam('service');
-    const staffId = getQueryParam('staff');
 
-    if (businessId && serviceId && staffId) {
-      return <BookAppointment businessId={businessId} serviceId={serviceId} staffId={staffId} />;
+    if (businessId && serviceId) {
+      return <BookAppointment businessId={businessId} serviceId={serviceId} />;
     }
   }
 

@@ -7,19 +7,21 @@ import { Button } from '../components/Button';
 import { Calendar, Clock, User, Check, X } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
-type Appointment = Database['public']['Tables']['appointments']['Row'] & {
+ type Appointment = Database['public']['Tables']['appointments']['Row'] & {
   client: { phone_number: string | null };
   service: { name: string; price: number; duration_minutes: number };
-  staff: { position: string | null };
-};
-
-export function BusinessCalendar() {
-  const { user, profile, loading: authLoading } = useAuth();
-  const [business, setBusiness] = useState<any>(null);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedDate, setSelectedDate] = useState('');
-  const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed'>('all');
+  staff: { name: string | null; position: string | null };
+ };
+ 
+ export function BusinessCalendar() {
+   const { user, profile, loading: authLoading } = useAuth();
+   const [business, setBusiness] = useState<any>(null);
+   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [staffMembers, setStaffMembers] = useState<Array<{ id: string; name: string | null; position: string | null }>>([]);
+  const [assignedStaff, setAssignedStaff] = useState<Record<string, string>>({});
+   const [loading, setLoading] = useState(true);
+   const [selectedDate, setSelectedDate] = useState('');
+   const [filter, setFilter] = useState<'all' | 'pending' | 'confirmed'>('all');
 
   useEffect(() => {
     document.title = 'Business Calendar — BookEase';
@@ -52,6 +54,15 @@ export function BusinessCalendar() {
 
       setBusiness(businessData);
 
+      if (businessData) {
+        const { data: staffData } = await supabase
+          .from('staff_members')
+          .select('id, name, position')
+          .eq('business_id', businessData.id)
+          .order('name');
+        setStaffMembers(staffData || []);
+      }
+
       const today = new Date().toISOString().split('T')[0];
       setSelectedDate(today);
     } catch (error) {
@@ -73,8 +84,9 @@ export function BusinessCalendar() {
         .select(`
           *,
           client:profiles!appointments_client_id_fkey(phone_number),
-          service:services(name, price, duration_minutes),
-          staff:staff_members(position)
+
+         service:services(name, price, duration_minutes),
+         staff:staff_members(name, position)
         `)
         .eq('business_id', business.id)
         .gte('start_time', startOfDay)
@@ -98,40 +110,71 @@ export function BusinessCalendar() {
     }
   };
 
-  const handleUpdateStatus = async (appointmentId: string, status: 'CONFIRMED' | 'CANCELLED' | 'COMPLETED') => {
+  const handleAssignStaff = async (appointmentId: string, staffId: string) => {
     try {
       const { error } = await supabase
         .from('appointments')
-        .update({ status })
+        .update({ staff_member_id: staffId })
         .eq('id', appointmentId);
-
       if (error) throw error;
+      setAssignedStaff((prev) => ({ ...prev, [appointmentId]: staffId }));
       loadAppointments();
-
-      // Send confirmation email to client when status becomes CONFIRMED
-      if (status === 'CONFIRMED') {
-        try {
-          const emailServerUrl = import.meta.env.VITE_EMAIL_SERVER_URL;
-          if (emailServerUrl) {
-            const resp = await fetch(`${emailServerUrl}/send-confirmation-email`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ appointment_id: appointmentId }),
-            });
-            const json = await resp.json().catch(() => null);
-            console.debug('Confirmation email (nodemailer) response:', { status: resp.status, ok: resp.ok, json });
-          } else {
-            console.warn('Email server URL not set; skipping confirmation email.');
-          }
-        } catch (notifyErr) {
-          console.warn('Confirmation email notification failed or skipped:', notifyErr);
-        }
-      }
     } catch (error) {
-      console.error('Error updating appointment:', error);
-      alert('Failed to update appointment');
+      console.error('Error assigning staff:', error);
+      alert('Failed to assign staff');
     }
   };
+
+
+  const handleUpdateStatus = async (appointmentId: string, status: 'CONFIRMED' | 'CANCELLED' | 'COMPLETED') => {
+     try {
+      // If confirming, ensure staff assigned if available
+      if (status === 'CONFIRMED') {
+        const selectedStaffId = assignedStaff[appointmentId];
+        if (!selectedStaffId && staffMembers.length > 0) {
+          alert('Please assign a staff member before confirming.');
+          return;
+        }
+        if (selectedStaffId) {
+          const { error: assignErr } = await supabase
+            .from('appointments')
+            .update({ staff_member_id: selectedStaffId })
+            .eq('id', appointmentId);
+          if (assignErr) throw assignErr;
+        }
+      }
+       const { error } = await supabase
+         .from('appointments')
+         .update({ status })
+         .eq('id', appointmentId);
+ 
+       if (error) throw error;
+       loadAppointments();
+ 
+       // Send confirmation email to client when status becomes CONFIRMED
+       if (status === 'CONFIRMED') {
+         try {
+           const emailServerUrl = import.meta.env.VITE_EMAIL_SERVER_URL;
+           if (emailServerUrl) {
+             const resp = await fetch(`${emailServerUrl}/send-confirmation-email`, {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ appointment_id: appointmentId }),
+             });
+             const json = await resp.json().catch(() => null);
+             console.debug('Confirmation email (nodemailer) response:', { status: resp.status, ok: resp.ok, json });
+           } else {
+             console.warn('Email server URL not set; skipping confirmation email.');
+           }
+         } catch (notifyErr) {
+           console.warn('Confirmation email notification failed or skipped:', notifyErr);
+         }
+       }
+     } catch (error) {
+       console.error('Error updating appointment:', error);
+       alert('Failed to update appointment');
+     }
+   };
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -162,7 +205,7 @@ export function BusinessCalendar() {
     const completed = appointments.filter(a => a.status === 'COMPLETED').length;
     const revenue = appointments
       .filter(a => a.status === 'COMPLETED' || a.status === 'CONFIRMED')
-      .reduce((sum, a) => sum + a.service.price, 0);
+      .reduce((sum, a) => sum + (a.service?.price || 0), 0);
 
     return { total, pending, confirmed, completed, revenue };
   };
@@ -292,7 +335,7 @@ export function BusinessCalendar() {
                                 {formatTime(appointment.start_time)} - {formatTime(appointment.end_time)}
                               </span>
                             </div>
-                            <h4 className="font-semibold text-slate-900">{appointment.service.name}</h4>
+                            <h4 className="font-semibold text-slate-900">{appointment.service ? appointment.service.name : 'Service'}</h4>
                           </div>
                           <span
                             className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
@@ -304,11 +347,11 @@ export function BusinessCalendar() {
                         </div>
 
                         <div className="space-y-1 text-sm text-slate-600">
-                          <p>Duration: {appointment.service.duration_minutes} minutes</p>
-                          <p>Price: GHS {appointment.service.price}</p>
-                          {appointment.staff.position && (
-                            <p>Staff: {appointment.staff.position}</p>
-                          )}
+                          <p>Duration: {appointment.service?.duration_minutes ?? '—'} minutes</p>
+                          <p>Price: GHS {appointment.service?.price ?? '—'}</p>
+                         {appointment.staff?.name && (
+                           <p>Staff: {appointment.staff?.name}{appointment.staff?.position ? ` (${appointment.staff?.position})` : ''}</p>
+                         )}
                           {appointment.notes && (
                             <p className="text-slate-700 mt-2">
                               <span className="font-medium">Note:</span> {appointment.notes}
@@ -319,23 +362,35 @@ export function BusinessCalendar() {
 
                       {appointment.status === 'PENDING' && (
                         <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="primary"
-                            onClick={() => handleUpdateStatus(appointment.id, 'CONFIRMED')}
-                          >
-                            <Check className="w-4 h-4 mr-1" />
-                            Confirm
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            onClick={() => handleUpdateStatus(appointment.id, 'CANCELLED')}
-                          >
-                            <X className="w-4 h-4 mr-1" />
-                            Cancel
-                          </Button>
-                        </div>
+                        <select
+                          className="px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                          value={assignedStaff[appointment.id] || ''}
+                          onChange={(e) => setAssignedStaff({ ...assignedStaff, [appointment.id]: e.target.value })}
+                        >
+                          <option value="">Assign staff...</option>
+                          {staffMembers.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name || 'Unnamed'}{s.position ? ` (${s.position})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => handleUpdateStatus(appointment.id, 'CONFIRMED')}
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          Confirm
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="danger"
+                          onClick={() => handleUpdateStatus(appointment.id, 'CANCELLED')}
+                        >
+                          <X className="w-4 h-4 mr-1" />
+                          Cancel
+                        </Button>
+                      </div>
                       )}
                       {appointment.status === 'CONFIRMED' && (
                         <div className="flex gap-2">

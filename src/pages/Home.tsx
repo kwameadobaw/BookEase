@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, MapPin, Star } from 'lucide-react';
+import { Search, MapPin, Star, Briefcase } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Input } from '../components/Input';
 import { Card, CardBody } from '../components/Card';
@@ -21,26 +21,22 @@ export function Home() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [cityFilter, setCityFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
 
   useEffect(() => {
-    loadBusinesses();
-  }, []);
-
-  useEffect(() => {
-    document.title = 'Home — BookEase';
-  }, []);
-
-  const loadBusinesses = async () => {
-    try {
-      const { data: businessData, error: businessError } = await supabase
+    const load = async () => {
+      setLoading(true);
+      const { data, error } = await supabase
         .from('business_profiles')
         .select('*')
+        .eq('is_listed', true)
         .order('created_at', { ascending: false });
-
-      if (businessError) throw businessError;
-
+      if (error) {
+        console.error('Error loading businesses', error);
+      }
+      // Enrich with stats for UI (reviews and popular services)
       const businessesWithStats = await Promise.all(
-        (businessData || []).map(async (business) => {
+        (data || []).map(async (business: any) => {
           const { data: reviews } = await supabase
             .from('reviews')
             .select('rating')
@@ -62,17 +58,18 @@ export function Home() {
             averageRating,
             reviewCount: reviews?.length || 0,
             services: services || [],
-          };
+          } as BusinessWithStats;
         })
       );
-
       setBusinesses(businessesWithStats);
-    } catch (error) {
-      console.error('Error loading businesses:', error);
-    } finally {
       setLoading(false);
-    }
-  };
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    document.title = 'Home — BookEase';
+  }, []);
 
   const filteredBusinesses = businesses.filter((business) => {
     const matchesSearch = !searchQuery ||
@@ -83,7 +80,11 @@ export function Home() {
     const matchesCity = !cityFilter ||
       business.city.toLowerCase().includes(cityFilter.toLowerCase());
 
-    return matchesSearch && matchesCity;
+    const matchesType = !typeFilter || (business.business_type || '').toLowerCase() === typeFilter.toLowerCase();
+
+    const isListed = business.is_listed !== false;
+
+    return isListed && matchesSearch && matchesCity && matchesType;
   });
 
   return (
@@ -97,7 +98,7 @@ export function Home() {
             Book appointments with top-rated salons, barbershops, and spas in your area
           </p>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid md:grid-cols-3 gap-4 items-center">
             <div className="relative">
               <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
               <input
@@ -117,6 +118,24 @@ export function Home() {
                 onChange={(e) => setCityFilter(e.target.value)}
                 className="w-full pl-12 pr-4 py-3 rounded-lg bg-white text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-300"
               />
+            </div>
+            <div className="relative">
+              <Briefcase className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400 w-5 h-5" />
+              <select
+                aria-label="Business Type"
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-300"
+              >
+                <option value="">All types</option>
+                <option value="Barbershop">Barbershop</option>
+                <option value="Salon">Salon</option>
+                <option value="Hair Salon">Hair Salon</option>
+                <option value="Nail Salon">Nail Salon</option>
+                <option value="Spa">Spa</option>
+                <option value="Beauty">Beauty</option>
+                <option value="Massage">Massage</option>
+              </select>
             </div>
           </div>
         </div>
@@ -209,7 +228,7 @@ export function Home() {
                     <Button
                       fullWidth
                       variant="primary"
-                      onClick={() => window.location.href = `/business/${business.id}`}
+                      onClick={() => window.location.href = `/business/${business.slug || business.id}`}
                     >
                       View Details
                     </Button>

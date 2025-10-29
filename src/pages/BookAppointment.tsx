@@ -5,19 +5,17 @@ import { Layout } from '../components/Layout';
 import { Card, CardBody, CardHeader } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
-import { Calendar, Clock, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface BookAppointmentProps {
   businessId: string;
   serviceId: string;
-  staffId: string;
 }
 
-export function BookAppointment({ businessId, serviceId, staffId }: BookAppointmentProps) {
+export function BookAppointment({ businessId, serviceId }: BookAppointmentProps) {
   const { user, profile, loading: authLoading } = useAuth();
   const [business, setBusiness] = useState<any>(null);
   const [service, setService] = useState<any>(null);
-  const [staff, setStaff] = useState<any>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [selectedSlot, setSelectedSlot] = useState('');
@@ -28,6 +26,7 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [availabilityMeta, setAvailabilityMeta] = useState<any>(null);
+  const [resolvedBusinessId, setResolvedBusinessId] = useState<string>(businessId);
 
   const calculateSlotsFromWorkingHours = (
     workingHours: { start_time: string; end_time: string },
@@ -61,20 +60,37 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
   }, [user, authLoading]);
 
   useEffect(() => {
-    if (selectedDate && service) {
+    if (selectedDate && service && resolvedBusinessId) {
       loadAvailableSlots();
     }
-  }, [selectedDate, service]);
+  }, [selectedDate, service, resolvedBusinessId]);
 
   const loadBookingData = async () => {
     try {
-      const { data: businessData } = await supabase
+      // Resolve business by slug or id
+      let businessData: any = null;
+      let businessError: any = null;
+      const bySlug = await supabase
         .from('business_profiles')
         .select('*')
-        .eq('id', businessId)
+        .eq('slug', businessId)
         .maybeSingle();
+      if (bySlug.data) {
+        businessData = bySlug.data;
+        businessError = bySlug.error;
+      } else {
+        const byId = await supabase
+          .from('business_profiles')
+          .select('*')
+          .eq('id', businessId)
+          .maybeSingle();
+        businessData = byId.data;
+        businessError = byId.error;
+      }
 
+      if (businessError) throw businessError;
       setBusiness(businessData);
+      setResolvedBusinessId(businessData?.id || businessId);
 
       const { data: serviceData } = await supabase
         .from('services')
@@ -84,17 +100,8 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
 
       setService(serviceData);
 
-      const { data: staffData } = await supabase
-        .from('staff_members')
-        .select('*')
-        .eq('id', staffId)
-        .maybeSingle();
-
-      setStaff(staffData);
-
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      setSelectedDate(tomorrow.toISOString().split('T')[0]);
+      const today = new Date();
+      setSelectedDate(today.toISOString().split('T')[0]);
     } catch (error) {
       console.error('Error loading booking data:', error);
       setError('Failed to load booking information');
@@ -107,7 +114,7 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
     try {
       const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-availability`;
       const params = new URLSearchParams({
-        staff_id: staffId,
+        business_id: resolvedBusinessId,
         date: selectedDate,
         duration: service.duration_minutes.toString(),
       });
@@ -132,15 +139,15 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
       }
     } catch (error) {
       console.warn('Edge availability failed; falling back to client-side hours.', error);
-      // Fallback: generate slots from working_hours directly (does NOT consider existing bookings)
+      // Fallback: generate slots from business_working_hours directly (does NOT consider existing bookings)
       try {
         const targetDate = new Date(selectedDate);
         const dayOfWeek = targetDate.getDay();
         const dateStr = targetDate.toISOString().split('T')[0];
         const { data: workingHours } = await supabase
-          .from('working_hours')
+          .from('business_working_hours')
           .select('start_time, end_time')
-          .eq('staff_member_id', staffId)
+          .eq('business_id', resolvedBusinessId)
           .eq('day_of_week', dayOfWeek)
           .maybeSingle();
 
@@ -174,7 +181,7 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
       try {
         const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/get-availability`;
         const params = new URLSearchParams({
-          staff_id: staffId,
+          business_id: resolvedBusinessId,
           date: selectedDate,
           duration: service.duration_minutes.toString(),
         });
@@ -205,9 +212,8 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
         .from('appointments')
         .insert({
           client_id: user.id,
-          staff_member_id: staffId,
           service_id: serviceId,
-          business_id: businessId,
+          business_id: resolvedBusinessId,
           start_time: startTime.toISOString(),
           end_time: endTime.toISOString(),
           status: 'PENDING',
@@ -226,10 +232,8 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              business_id: businessId,
+              business_id: resolvedBusinessId,
               service_name: service?.name,
-              staff_member_id: staffId,
-              staff_name: (staff as any)?.name || null,
               client_id: user.id,
               client_email: user.email,
               client_name: clientName?.trim() || null,
@@ -249,11 +253,9 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
               'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
             },
             body: JSON.stringify({
-              business_id: businessId,
+              business_id: resolvedBusinessId,
               business_email: (business as any)?.email || null,
               service_name: service?.name,
-              staff_member_id: staffId,
-              staff_name: (staff as any)?.name || null,
               client_id: user.id,
               client_email: user.email,
               client_name: clientName?.trim() || null,
@@ -271,9 +273,6 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
       }
 
       setSuccess(true);
-      setTimeout(() => {
-        window.location.href = '/my-appointments';
-      }, 2000);
     } catch (error: any) {
       console.error('Error booking appointment:', error);
       setError(error.message || 'Failed to book appointment');
@@ -292,9 +291,8 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
   };
 
   const getMinDate = () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split('T')[0];
+    const today = new Date();
+    return today.toISOString().split('T')[0];
   };
 
   const getMaxDate = () => {
@@ -315,6 +313,8 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
   }
 
   if (success) {
+    const businessPhone = business?.phone_number;
+    const mobileMoneyNumber = business?.mobile_money_number;
     return (
       <Layout>
         <div className="max-w-2xl mx-auto">
@@ -323,10 +323,26 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Check className="w-8 h-8 text-green-600" />
               </div>
-              <h2 className="text-2xl font-bold text-slate-900 mb-2">Booking Confirmed!</h2>
+              <h2 className="text-2xl font-bold text-slate-900 mb-2">Booking Submitted!</h2>
               <p className="text-slate-600 mb-6">
-                Your appointment has been successfully booked. You'll be redirected to your appointments page.
+                Your appointment request has been sent. The business will assign a staff member and confirm.
               </p>
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg text-left">
+                <p className="text-amber-900 font-semibold mb-1">Action Required</p>
+                {mobileMoneyNumber || businessPhone ? (
+                  <p className="text-amber-800 text-sm">
+                    Please make a 50% payment to Mobile Money number {mobileMoneyNumber ? (<span className="font-semibold">{mobileMoneyNumber}</span>) : 'provided by the business'} and call the business {businessPhone ? (<span className="font-semibold">{businessPhone}</span>) : 'phone number'} to confirm your booking.
+                  </p>
+                ) : (
+                  <p className="text-amber-800 text-sm">
+                    Please make a 50% payment to the business Mobile Money number and call the business phone number to confirm your booking.
+                  </p>
+                )}
+              </div>
+-              <p className="text-slate-600 mb-6">
+-                You’ll be redirected to your appointments shortly.
+-              </p>
++              {/* No auto-redirect; user stays on confirmation page */}
             </CardBody>
           </Card>
         </div>
@@ -399,7 +415,7 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
               <CardBody>
                 {availabilityMeta?.source === 'fallback' && (
                   <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                    Showing staff hours only. Existing bookings may not be reflected.
+                    Showing business hours only. Existing bookings may not be reflected.
                   </div>
                 )}
                 {!selectedDate ? (
@@ -408,9 +424,9 @@ export function BookAppointment({ businessId, serviceId, staffId }: BookAppointm
                   <div className="space-y-2 text-slate-600">
                     <p>No available slots for this date</p>
                     {availabilityMeta?.reason === 'no_working_hours' ? (
-                      <p className="text-sm">No working hours set for this staff on the selected day.</p>
+                      <p className="text-sm">No working hours set for this business on the selected day.</p>
                     ) : availabilityMeta?.workingHours ? (
-                      <p className="text-sm">Staff hours: {availabilityMeta.workingHours.start_time} – {availabilityMeta.workingHours.end_time}. Consider adjusting service duration or hours.</p>
+                      <p className="text-sm">Business hours: {availabilityMeta.workingHours.start_time} – {availabilityMeta.workingHours.end_time}. Consider adjusting service duration or hours.</p>
                     ) : null}
                   </div>
                 ) : (

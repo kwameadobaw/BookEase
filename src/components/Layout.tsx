@@ -1,7 +1,8 @@
-import { ReactNode } from 'react';
-import { Calendar, LogOut, Menu, Search, User, Briefcase } from 'lucide-react';
+import { ReactNode, useEffect, useState } from 'react';
+import { Calendar, LogOut, Menu, Search, User, Briefcase, Home } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './Button';
+import { supabase } from '../lib/supabase';
 
 interface LayoutProps {
   children: ReactNode;
@@ -9,9 +10,50 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const { user, profile, signOut } = useAuth();
+  const [hasPendingForBusiness, setHasPendingForBusiness] = useState(false);
+  const [hasConfirmedForClient, setHasConfirmedForClient] = useState(false);
+
+  useEffect(() => {
+    const loadIndicators = async () => {
+      setHasPendingForBusiness(false);
+      setHasConfirmedForClient(false);
+      if (!user || !profile) return;
+
+      const nowIso = new Date().toISOString();
+
+      if (profile.user_type === 'BUSINESS_OWNER') {
+        const { data: biz } = await supabase
+          .from('business_profiles')
+          .select('id')
+          .eq('owner_id', user.id)
+          .maybeSingle();
+        const businessId = (biz as any)?.id;
+        if (businessId) {
+          const { count } = await supabase
+            .from('appointments')
+            .select('id', { count: 'exact', head: true })
+            .eq('business_id', businessId)
+            .eq('status', 'PENDING')
+            .gte('start_time', nowIso);
+          setHasPendingForBusiness((count || 0) > 0);
+        }
+      }
+
+      if (profile.user_type === 'CLIENT') {
+        const { count } = await supabase
+          .from('appointments')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', user.id)
+          .eq('status', 'CONFIRMED')
+          .gte('start_time', nowIso);
+        setHasConfirmedForClient((count || 0) > 0);
+      }
+    };
+    loadIndicators();
+  }, [user, profile]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 pb-16 md:pb-0">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -26,14 +68,17 @@ export function Layout({ children }: LayoutProps) {
               {user && (
                 <nav className="hidden md:flex items-center gap-6">
                   {profile?.user_type === 'CLIENT' && (
-                    <>
+                    <> 
                       <a href="/" className="text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
                         <Search className="w-4 h-4 inline mr-1.5" />
                         Explore
                       </a>
-                      <a href="/my-appointments" className="text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
+                      <a href="/my-appointments" className="relative text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
                         <Calendar className="w-4 h-4 inline mr-1.5" />
                         My Appointments
+                        {hasConfirmedForClient && (
+                          <span className="absolute -top-1 -right-2 inline-block w-2 h-2 rounded-full bg-green-500" aria-label="confirmed appointment" />
+                        )}
                       </a>
                     </>
                   )}
@@ -43,9 +88,12 @@ export function Layout({ children }: LayoutProps) {
                         <Briefcase className="w-4 h-4 inline mr-1.5" />
                         Dashboard
                       </a>
-                      <a href="/business/calendar" className="text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
+                      <a href="/business/calendar" className="relative text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
                         <Calendar className="w-4 h-4 inline mr-1.5" />
                         Calendar
+                        {hasPendingForBusiness && (
+                          <span className="absolute -top-1 -right-2 inline-block w-2 h-2 rounded-full bg-red-500" aria-label="pending booking" />
+                        )}
                       </a>
                     </>
                   )}
@@ -82,6 +130,45 @@ export function Layout({ children }: LayoutProps) {
             </div>
           </div>
         </div>
+
+        {/* Mobile nav in header */}
+        {user && (
+          <div className="md:hidden border-t border-slate-200 bg-white">
+            <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4 overflow-x-auto">
+              {profile?.user_type === 'CLIENT' && (
+                <>
+                  <a href="/" className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <Search className="w-4 h-4" />
+                    <span>Explore</span>
+                  </a>
+                  <a href="/my-appointments" className="relative flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <Calendar className="w-4 h-4" />
+                    <span>My Appointments</span>
+                    {hasConfirmedForClient && (
+                      <span className="absolute -top-1 -right-2 inline-block w-2 h-2 rounded-full bg-green-500" aria-label="confirmed appointment" />
+                    )}
+                  </a>
+                </>
+              )}
+
+              {profile?.user_type === 'BUSINESS_OWNER' && (
+                <>
+                  <a href="/business/dashboard" className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <Briefcase className="w-4 h-4" />
+                    <span>Dashboard</span>
+                  </a>
+                  <a href="/business/calendar" className="relative flex items-center gap-2 text-sm font-medium text-slate-700">
+                    <Calendar className="w-4 h-4" />
+                    <span>Calendar</span>
+                    {hasPendingForBusiness && (
+                      <span className="absolute -top-1 -right-2 inline-block w-2 h-2 rounded-full bg-red-500" aria-label="pending booking" />
+                    )}
+                  </a>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -95,6 +182,43 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </footer>
+
+      {/* Fixed bottom mobile nav for better visibility */}
+      {user && (
+        <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 md:hidden">
+          <div className="max-w-7xl mx-auto px-4 py-2 grid grid-cols-2 gap-4">
+            {profile?.user_type === 'CLIENT' ? (
+              <>
+                <a href="/" className="flex flex-col items-center text-xs font-medium text-slate-700">
+                  <Search className="w-5 h-5 mb-1" />
+                  Explore
+                </a>
+                <a href="/my-appointments" className="flex flex-col items-center text-xs font-medium text-slate-700 relative">
+                  <Calendar className="w-5 h-5 mb-1" />
+                  My Appointments
+                  {hasConfirmedForClient && (
+                    <span className="absolute top-0 right-6 inline-block w-2 h-2 rounded-full bg-green-500" aria-label="confirmed appointment" />
+                  )}
+                </a>
+              </>
+            ) : (
+              <>
+                <a href="/business/dashboard" className="flex flex-col items-center text-xs font-medium text-slate-700">
+                  <Briefcase className="w-5 h-5 mb-1" />
+                  Dashboard
+                </a>
+                <a href="/business/calendar" className="flex flex-col items-center text-xs font-medium text-slate-700 relative">
+                  <Calendar className="w-5 h-5 mb-1" />
+                  Calendar
+                  {hasPendingForBusiness && (
+                    <span className="absolute top-0 right-6 inline-block w-2 h-2 rounded-full bg-red-500" aria-label="pending booking" />
+                  )}
+                </a>
+              </>
+            )}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

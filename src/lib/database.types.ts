@@ -16,6 +16,8 @@ export interface Database {
         Row: {
           id: string;
           user_type: UserType;
+          first_name: string | null;
+          last_name: string | null;
           phone_number: string | null;
           profile_picture_url: string | null;
           created_at: string;
@@ -24,6 +26,8 @@ export interface Database {
         Insert: {
           id: string;
           user_type?: UserType;
+          first_name?: string | null;
+          last_name?: string | null;
           phone_number?: string | null;
           profile_picture_url?: string | null;
           created_at?: string;
@@ -32,6 +36,8 @@ export interface Database {
         Update: {
           id?: string;
           user_type?: UserType;
+          first_name?: string | null;
+          last_name?: string | null;
           phone_number?: string | null;
           profile_picture_url?: string | null;
           created_at?: string;
@@ -50,6 +56,11 @@ export interface Database {
           description: string | null;
           cover_photo_url: string | null;
           email: string | null;
+          phone_number: string | null;
+          mobile_money_number: string | null;
+          business_type: string | null;
+          is_listed: boolean | null;
+          slug: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -64,6 +75,11 @@ export interface Database {
           description?: string | null;
           cover_photo_url?: string | null;
           email?: string | null;
+          phone_number?: string | null;
+          mobile_money_number?: string | null;
+          business_type?: string | null;
+          is_listed?: boolean | null;
+          slug?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -78,6 +94,11 @@ export interface Database {
           description?: string | null;
           cover_photo_url?: string | null;
           email?: string | null;
+          phone_number?: string | null;
+          mobile_money_number?: string | null;
+          business_type?: string | null;
+          is_listed?: boolean | null;
+          slug?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -91,6 +112,7 @@ export interface Database {
           price: number;
           duration_minutes: number;
           is_active: boolean;
+          photo_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -102,6 +124,7 @@ export interface Database {
           price: number;
           duration_minutes: number;
           is_active?: boolean;
+          photo_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -113,6 +136,7 @@ export interface Database {
           price?: number;
           duration_minutes?: number;
           is_active?: boolean;
+          photo_url?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -181,11 +205,37 @@ export interface Database {
           created_at?: string;
         };
       };
+      business_working_hours: {
+        Row: {
+          id: string;
+          business_id: string;
+          day_of_week: number;
+          start_time: string;
+          end_time: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          business_id: string;
+          day_of_week: number;
+          start_time: string;
+          end_time: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          business_id?: string;
+          day_of_week?: number;
+          start_time?: string;
+          end_time?: string;
+          created_at?: string;
+        };
+      };
       appointments: {
         Row: {
           id: string;
           client_id: string;
-          staff_member_id: string;
+          staff_member_id: string | null;
           service_id: string;
           business_id: string;
           start_time: string;
@@ -198,7 +248,7 @@ export interface Database {
         Insert: {
           id?: string;
           client_id: string;
-          staff_member_id: string;
+          staff_member_id?: string | null;
           service_id: string;
           business_id: string;
           start_time: string;
@@ -211,7 +261,7 @@ export interface Database {
         Update: {
           id?: string;
           client_id?: string;
-          staff_member_id?: string;
+          staff_member_id?: string | null;
           service_id?: string;
           business_id?: string;
           start_time?: string;

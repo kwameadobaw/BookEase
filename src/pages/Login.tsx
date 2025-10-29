@@ -91,6 +91,10 @@ export function Login() {
                 required
               />
 
+              <div className="flex items-center justify-between">
+                <a href="/forgot" className="text-sm text-slate-600 hover:underline">Forgot password?</a>
+              </div>
+
               <Button type="submit" fullWidth disabled={loading}>
                 {loading ? 'Signing in...' : 'Sign In'}
               </Button>
