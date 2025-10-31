@@ -478,6 +478,59 @@ app.listen(PORT, () => {
   console.log(`[email] server listening on http://localhost:${PORT}`);
 });
 
+// Fetch reviews with client names (service role join; anon fallback)
+app.get('/businesses/:businessId/reviews', async (req, res) => {
+  const clientPrimary = supabase;
+  const clientFallback = supabaseAnon;
+
+  if (!clientPrimary && !clientFallback) {
+    return res.status(500).json({ ok: false, error: 'Supabase not configured' });
+  }
+
+  const { businessId } = req.params;
+
+  function isInvalidApiKeyError(err) {
+    const msg = String(err?.message || '').toLowerCase();
+    return msg.includes('invalid api key') || msg.includes('anonymous key');
+  }
+
+  try {
+    // Prefer service role to join profiles for names
+    let { data, error } = await (clientPrimary || clientFallback)
+      .from('reviews')
+      .select('id, rating, comment, created_at, client_id, profiles:client_id(first_name, last_name)')
+      .eq('business_id', businessId)
+      .order('created_at', { ascending: false });
+
+    if (error && clientFallback && clientPrimary && isInvalidApiKeyError(error)) {
+      // Fallback to anon without join
+      ({ data, error } = await clientFallback
+        .from('reviews')
+        .select('id, rating, comment, created_at')
+        .eq('business_id', businessId)
+        .order('created_at', { ascending: false }));
+    }
+
+    if (error) throw error;
+
+    const reviews = (data || []).map((r) => {
+      const name = [r?.profiles?.first_name, r?.profiles?.last_name].filter(Boolean).join(' ').trim();
+      return {
+        id: r.id,
+        rating: r.rating,
+        comment: r.comment,
+        created_at: r.created_at,
+        display_name: name || 'Client',
+      };
+    });
+
+    return res.json({ ok: true, reviews });
+  } catch (e) {
+    console.error('[reviews] error', e);
+    return res.status(500).json({ ok: false, error: 'Failed to fetch reviews' });
+  }
+});
+
 // Generate PDF report for a business within a date range
 app.get('/businesses/:businessId/report', async (req, res) => {
   // We prefer service role, but can gracefully degrade to anon for limited data

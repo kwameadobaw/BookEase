@@ -10,6 +10,7 @@ import { BookAppointment } from './pages/BookAppointment';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import Developer from './pages/Developer';
+import { Profile } from './pages/Profile';
 
 export function Router() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -59,6 +60,10 @@ export function Router() {
 
   if (pathname === '/developer') {
     return <Developer />;
+  }
+
+  if (pathname === '/profile') {
+    return <Profile />;
   }
 
   if (pathname === '/my-appointments') {

@@ -23,8 +23,10 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [displayReviews, setDisplayReviews] = useState<{ id: string; rating: number; comment: string | null; created_at: string; display_name: string }[]>([]);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
+  const EMAIL_SERVER_URL = (import.meta as any).env?.VITE_EMAIL_SERVER_URL || 'http://localhost:4000';
 
   useEffect(() => {
     loadBusinessData();
@@ -92,6 +94,31 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
         .limit(10);
 
       setReviews((reviewsData as any) || []);
+
+      // Fetch display names for reviews via backend (service role join); fallback to generic
+      try {
+        const resp = await fetch(`${EMAIL_SERVER_URL}/businesses/${realBusinessId}/reviews`);
+        const json = await resp.json().catch(() => null);
+        if (resp.ok && json?.ok && Array.isArray(json.reviews)) {
+          setDisplayReviews(json.reviews);
+        } else {
+          setDisplayReviews((reviewsData || []).map((r: any) => ({
+            id: r.id,
+            rating: r.rating,
+            comment: r.comment,
+            created_at: r.created_at,
+            display_name: 'Client',
+          })));
+        }
+      } catch (e) {
+        setDisplayReviews((reviewsData || []).map((r: any) => ({
+          id: r.id,
+          rating: r.rating,
+          comment: r.comment,
+          created_at: r.created_at,
+          display_name: 'Client',
+        })));
+      }
     } catch (error) {
       console.error('Error loading business:', error);
     } finally {
@@ -99,8 +126,8 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
     }
   };
 
-  const averageRating = reviews.length > 0
-    ? reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length
+  const averageRating = displayReviews.length > 0
+    ? displayReviews.reduce((acc, r) => acc + r.rating, 0) / displayReviews.length
     : 0;
 
   const handleBookAppointment = () => {
@@ -283,22 +310,21 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
             
             <Card>
               <CardHeader>
-                <h2 className="text-xl font-bold text-slate-900">Reviews ({reviews.length})</h2>
+                <h2 className="text-xl font-bold text-slate-900">Reviews ({displayReviews.length})</h2>
               </CardHeader>
               <CardBody>
-                {reviews.length === 0 ? (
+                {displayReviews.length === 0 ? (
                   <p className="text-slate-600">No reviews yet</p>
                 ) : (
                   <div className="space-y-4">
-                    {reviews.map((review) => {
-                      const displayName = 'Client';
+                    {displayReviews.map((review) => {
                       return (
                         <div key={review.id} className="border-b border-slate-100 pb-4 last:border-0">
                           <div className="flex items-center gap-2 mb-1">
                             <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center">
                               <User className="w-4 h-4 text-slate-500" />
                             </div>
-                            <span className="text-sm font-medium text-slate-900">{displayName}</span>
+                            <span className="text-sm font-medium text-slate-900">{review.display_name}</span>
                             <span className="text-sm text-slate-500 ml-2">
                               {new Date(review.created_at).toLocaleDateString()}
                             </span>

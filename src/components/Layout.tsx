@@ -106,6 +106,11 @@ export function Layout({ children }: LayoutProps) {
                 <>
                   <div className="hidden sm:flex items-center gap-3">
                     <div className="text-right">
+                      {profile?.user_type === 'CLIENT' && (profile?.first_name || profile?.last_name) && (
+                        <p className="text-sm font-semibold text-slate-900">
+                          {[profile?.first_name, profile?.last_name].filter(Boolean).join(' ')}
+                        </p>
+                      )}
                       <p className="text-sm font-medium text-slate-900">{user.email}</p>
                       <p className="text-xs text-slate-500 capitalize">{profile?.user_type.toLowerCase().replace('_', ' ')}</p>
                     </div>
