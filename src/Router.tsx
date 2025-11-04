@@ -11,6 +11,7 @@ import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
 import Developer from './pages/Developer';
 import { Profile } from './pages/Profile';
+import { LandingPage } from './pages/LandingPage';
 
 export function Router() {
   const [pathname, setPathname] = useState(window.location.pathname);
@@ -70,6 +71,11 @@ export function Router() {
     return <MyAppointments />;
   }
 
+  // Explicit route to the businesses listing page
+  if (pathname === '/home') {
+    return <Home />;
+  }
+
   if (pathname === '/business/dashboard') {
     return <BusinessDashboard />;
   }
@@ -93,5 +99,6 @@ export function Router() {
     }
   }
 
-  return <Home />;
+  // Use LandingPage as the default route
+  return <LandingPage />;
 }

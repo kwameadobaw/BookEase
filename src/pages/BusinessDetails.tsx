@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { Layout } from '../components/Layout';
 import { Card, CardBody, CardHeader } from '../components/Card';
 import { Button } from '../components/Button';
+import { RecommendedBadge } from '../components/RecommendedBadge';
 import { MapPin, Star, Clock, DollarSign, User, Phone } from 'lucide-react';
 import type { Database } from '../lib/database.types';
 
@@ -27,6 +28,7 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [loading, setLoading] = useState(true);
   const EMAIL_SERVER_URL = (import.meta as any).env?.VITE_EMAIL_SERVER_URL || 'http://localhost:4000';
+  const [isRecommended, setIsRecommended] = useState(false);
 
   useEffect(() => {
     loadBusinessData();
@@ -119,6 +121,13 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
           display_name: 'Client',
         })));
       }
+
+      // Fetch recommended flag from email server
+      try {
+        const r = await fetch(`${EMAIL_SERVER_URL}/businesses/${realBusinessId}/recommended`);
+        const j = await r.json().catch(() => null);
+        if (r.ok && j?.ok) setIsRecommended(Boolean(j.is_recommended));
+      } catch {}
     } catch (error) {
       console.error('Error loading business:', error);
     } finally {
@@ -205,7 +214,10 @@ export function BusinessDetails({ businessId }: BusinessDetailsProps) {
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
           <div className="absolute bottom-6 left-6 text-white">
-            <h1 className="text-4xl font-bold mb-2">{business.name}</h1>
+            <div className="flex items-center gap-3 mb-2">
+              <h1 className="text-4xl font-bold">{business.name}</h1>
+              {isRecommended && <RecommendedBadge size="sm" />}
+            </div>
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-1">
                 <MapPin className="w-5 h-5" />

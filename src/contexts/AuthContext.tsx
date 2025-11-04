@@ -95,6 +95,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
+    setUser(null);
+    // Redirect to landing page after logout
+    window.location.href = '/';
   };
 
   const updateProfile = async (updates: Partial<Profile>) => {

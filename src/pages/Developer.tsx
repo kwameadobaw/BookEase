@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
+import { RecommendedBadge } from '../components/RecommendedBadge';
 import { 
   Eye, 
   EyeOff, 
@@ -17,7 +18,8 @@ import {
   Mail,
   Phone,
   MapPin,
-  Clock
+  Clock,
+  Award
 } from 'lucide-react';
 
 interface Business {
@@ -28,6 +30,7 @@ interface Business {
   phone: string;
   email: string;
   is_listed: boolean;
+  is_recommended: boolean;
   created_at: string;
   users: { email: string };
   analytics: {
@@ -184,6 +187,40 @@ export default function Developer() {
     } catch (error) {
       console.error('Failed to toggle listing:', error);
       alert('Failed to toggle listing. Check server logs and configuration.');
+    }
+  };
+  
+  // Toggle business recommended status
+  const toggleBusinessRecommended = async (businessId: string) => {
+    if (!adminEnabled) {
+      alert('Admin mode is disabled. Configure SUPABASE_SERVICE_ROLE_KEY on the backend to enable recommended badge toggles.');
+      return;
+    }
+    try {
+      const response = await fetch(
+        `${EMAIL_SERVER_URL}/developer/businesses/${businessId}/toggle-recommended`,
+        { method: 'POST' }
+      );
+      const data = await response.json();
+      
+      if (data.ok) {
+        setBusinesses(prev => 
+          prev.map(business => 
+            business.id === businessId 
+              ? { ...business, is_recommended: data.is_recommended }
+              : business
+          )
+        );
+        // Refresh from server to ensure counts and state are in sync
+        loadBusinesses();
+        // Reflect in selected business panel if currently open
+        setSelectedBusiness(prev => prev && prev.id === businessId ? { ...prev, is_recommended: data.is_recommended } as Business : prev);
+      } else {
+        alert(data.error || 'Failed to toggle recommended status');
+      }
+    } catch (error) {
+      console.error('Failed to toggle recommended status:', error);
+      alert('Failed to toggle recommended status.');
     }
   };
 
@@ -372,6 +409,9 @@ export default function Developer() {
                         <p className="text-sm text-gray-600">{business.users.email}</p>
                       </div>
                     </button>
+                    {business.is_recommended && (
+                      <RecommendedBadge size="sm" className="ml-2" />
+                    )}
                   </div>
 
                   <div className="flex items-center space-x-4">
@@ -386,6 +426,21 @@ export default function Developer() {
                         GHS {business.analytics.totalRevenue.toFixed(2)}
                       </span>
                     </div>
+
+                    {/* Recommended Toggle */}
+                    <button
+                      onClick={() => toggleBusinessRecommended(business.id)}
+                      disabled={!adminEnabled}
+                      title={!adminEnabled ? 'Enable admin mode to toggle recommended badge' : ''}
+                      className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
+                        business.is_recommended
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-gray-100 text-gray-800'
+                      } ${!adminEnabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Award className="h-4 w-4" />
+                      {business.is_recommended ? 'Recommended' : 'Recommend'}
+                    </button>
 
                     {/* Listing Toggle */}
                     <button

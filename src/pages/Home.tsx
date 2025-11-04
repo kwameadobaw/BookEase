@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, MapPin, Star, Briefcase } from 'lucide-react';
+import { RecommendedBadge } from '../components/RecommendedBadge';
 import { supabase } from '../lib/supabase';
 import { Input } from '../components/Input';
 import { Card, CardBody } from '../components/Card';
@@ -14,6 +15,7 @@ interface BusinessWithStats extends BusinessProfile {
   averageRating: number;
   reviewCount: number;
   services: { name: string; price: number }[];
+  is_recommended?: boolean;
 }
 
 export function Home() {
@@ -22,6 +24,7 @@ export function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [cityFilter, setCityFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+  const EMAIL_SERVER_URL = (import.meta as any).env?.VITE_EMAIL_SERVER_URL || 'http://localhost:4000';
 
   useEffect(() => {
     const load = async () => {
@@ -34,7 +37,17 @@ export function Home() {
       if (error) {
         console.error('Error loading businesses', error);
       }
-      // Enrich with stats for UI (reviews and popular services)
+      // Fetch recommended ids from backend (in-memory flag)
+      let recommendedIds: string[] = [];
+      try {
+        const resp = await fetch(`${EMAIL_SERVER_URL}/businesses/recommended`);
+        const json = await resp.json().catch(() => null);
+        if (resp.ok && json?.ok && Array.isArray(json?.recommended)) {
+          recommendedIds = json.recommended as string[];
+        }
+      } catch {}
+
+      // Enrich with stats for UI (reviews and popular services) and recommended flag
       const businessesWithStats = await Promise.all(
         (data || []).map(async (business: any) => {
           const { data: reviews } = await supabase
@@ -58,6 +71,7 @@ export function Home() {
             averageRating,
             reviewCount: reviews?.length || 0,
             services: services || [],
+            is_recommended: recommendedIds.includes(business.id),
           } as BusinessWithStats;
         })
       );
@@ -184,7 +198,12 @@ export function Home() {
                     )}
                   </div>
                   <CardBody>
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">{business.name}</h3>
+                    <div className="flex items-center mb-2">
+                      <h3 className="text-lg font-bold text-slate-900">{business.name}</h3>
+                      {business.is_recommended && (
+                        <RecommendedBadge size="sm" className="ml-2" />
+                      )}
+                    </div>
 
                     <div className="flex items-center gap-2 mb-3">
                       <MapPin className="w-4 h-4 text-slate-400" />

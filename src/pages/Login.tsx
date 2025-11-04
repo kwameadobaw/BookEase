@@ -41,10 +41,12 @@ export function Login() {
         if (profile?.user_type === 'BUSINESS_OWNER') {
           window.location.href = '/business/dashboard';
         } else {
-          window.location.href = '/';
+          // Redirect regular users to the businesses listing page
+          window.location.href = '/home';
         }
       } else {
-        window.location.href = '/';
+        // Fallback for missing profile
+        window.location.href = '/home';
       }
     }
   };
@@ -107,7 +109,7 @@ export function Login() {
                   Sign up
                 </a>
                  {' '}or go to{' '}
-                <a href="/home" className="font-medium text-slate-900 hover:underline">
+                <a href="/" className="font-medium text-slate-900 hover:underline">
                   Home
                 </a>
               </p>

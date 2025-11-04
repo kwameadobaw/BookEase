@@ -61,7 +61,7 @@ export function Layout({ children }: LayoutProps) {
               <div className="flex items-center gap-2">
                 <Calendar className="w-8 h-8 text-slate-900" />
                 <a href='/home'>
-                <span className="text-xl font-bold text-slate-900">BookEase</span>
+                  <span className="text-xl font-bold text-slate-900">BookEase</span>
                 </a>
               </div>
 
@@ -69,7 +69,7 @@ export function Layout({ children }: LayoutProps) {
                 <nav className="hidden md:flex items-center gap-6">
                   {profile?.user_type === 'CLIENT' && (
                     <> 
-                      <a href="/" className="text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
+                      <a href="/home" className="text-sm font-medium text-slate-700 hover:text-slate-900 transition-colors">
                         <Search className="w-4 h-4 inline mr-1.5" />
                         Explore
                       </a>
@@ -142,7 +142,7 @@ export function Layout({ children }: LayoutProps) {
             <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4 overflow-x-auto">
               {profile?.user_type === 'CLIENT' && (
                 <>
-                  <a href="/" className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <a href="/home" className="flex items-center gap-2 text-sm font-medium text-slate-700">
                     <Search className="w-4 h-4" />
                     <span>Explore</span>
                   </a>
@@ -194,7 +194,7 @@ export function Layout({ children }: LayoutProps) {
           <div className="max-w-7xl mx-auto px-4 py-2 grid grid-cols-2 gap-4">
             {profile?.user_type === 'CLIENT' ? (
               <>
-                <a href="/" className="flex flex-col items-center text-xs font-medium text-slate-700">
+                <a href="/home" className="flex flex-col items-center text-xs font-medium text-slate-700">
                   <Search className="w-5 h-5 mb-1" />
                   Explore
                 </a>

@@ -167,7 +167,7 @@ export function Signup() {
                   Sign in
                 </a>
                  {' '}or go to{' '}
-                <a href="/home" className="font-medium text-slate-900 hover:underline">
+                <a href="/" className="font-medium text-slate-900 hover:underline">
                   Home
                 </a>
               </p>

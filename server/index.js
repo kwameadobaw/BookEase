@@ -86,6 +86,9 @@ const transporter = createTransport();
 const EMAIL_FROM = process.env.EMAIL_FROM || 'no-reply@example.com';
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Bookings';
 
+// In-memory recommended status map for developer badge toggles (non-persistent)
+const recommendedStatus = new Map();
+
 function fromAddress() {
   return `${EMAIL_FROM_NAME} <${EMAIL_FROM}>`;
 }
@@ -323,6 +326,7 @@ app.get('/developer/businesses', async (req, res) => {
             email: ownerEmail || '',
             users: { email: ownerEmail || '' },
             analytics: { totalBookings: 0, confirmedBookings: 0, totalRevenue: 0 },
+            is_recommended: Boolean(recommendedStatus.get(business.id)),
           };
         }
 
@@ -357,6 +361,7 @@ app.get('/developer/businesses', async (req, res) => {
             confirmedBookings: confirmedBookings || 0,
             totalRevenue,
           },
+          is_recommended: Boolean(recommendedStatus.get(business.id)),
         };
       })
     );
@@ -476,6 +481,31 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`[email] server listening on http://localhost:${PORT}`);
+});
+
+// Public: get all recommended business ids
+app.get('/businesses/recommended', (req, res) => {
+  try {
+    const ids = Array.from(recommendedStatus.entries())
+      .filter(([_, v]) => Boolean(v))
+      .map(([id]) => id);
+    return res.json({ ok: true, recommended: ids });
+  } catch (e) {
+    console.error('[recommended] list error', e);
+    return res.status(500).json({ ok: false, error: 'Failed to fetch recommended list' });
+  }
+});
+
+// Public: get recommended flag for a specific business
+app.get('/businesses/:businessId/recommended', (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const isRec = Boolean(recommendedStatus.get(businessId));
+    return res.json({ ok: true, is_recommended: isRec });
+  } catch (e) {
+    console.error('[recommended] get error', e);
+    return res.status(500).json({ ok: false, error: 'Failed to fetch recommended flag' });
+  }
 });
 
 // Fetch reviews with client names (service role join; anon fallback)
@@ -699,5 +729,19 @@ app.get('/businesses/:businessId/report', async (req, res) => {
   } catch (e) {
     console.error('[report] error', e);
     return res.status(500).json({ ok: false, error: 'Failed to generate report' });
+  }
+});
+
+// Toggle business recommended status (in-memory only)
+app.post('/developer/businesses/:businessId/toggle-recommended', async (req, res) => {
+  const { businessId } = req.params;
+  try {
+    const current = Boolean(recommendedStatus.get(businessId));
+    const newStatus = !current;
+    recommendedStatus.set(businessId, newStatus);
+    return res.json({ ok: true, is_recommended: newStatus });
+  } catch (e) {
+    console.error('[developer] toggle recommended error', e);
+    return res.status(500).json({ ok: false, error: 'Failed to toggle recommended status' });
   }
 });

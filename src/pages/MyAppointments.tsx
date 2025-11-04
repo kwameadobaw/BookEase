@@ -205,7 +205,7 @@ export function MyAppointments() {
                   : 'You have no past appointments'}
               </p>
               {filter === 'upcoming' && (
-                <Button onClick={() => window.location.href = '/'}>
+                <Button onClick={() => window.location.href = '/home'}>
                   Book an Appointment
                 </Button>
               )}
