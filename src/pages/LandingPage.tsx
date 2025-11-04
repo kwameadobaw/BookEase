@@ -42,7 +42,7 @@ export function LandingPage() {
           <div className="md:w-1/2 md:pl-12">
             <div className="bg-white rounded-lg shadow-xl p-6 border border-gray-100">
               <img 
-                src="/hero-illustration.svg" 
+                src="/pexels-leeloothefirst-5408684.jpg" 
                 alt="Booking Calendar" 
                 className="w-full h-auto"
                 onError={(e) => {
